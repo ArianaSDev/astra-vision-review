@@ -41,9 +41,35 @@ export async function extractC05(buffer){
   if(bytes.length!==e.length||crc32(bytes)!==e.crc)throw Error('Integridade CRC-32 do PNG no ZIP não confere.');
   return {bytes,path:e.name};
 }
-export function exportReview({reviewer,source,boxes,coverage,notes}){
+// This signature binds a manual conference to this region's current annotation.
+// It is an equality check, not a confidence score or a detector result.
+export function regionSignature(b){return JSON.stringify([b.id,b.category,b.x,b.y,b.width,b.height,b.certainty,b.note??'']);}
+export function invalidateRegion(b){b.conference={status:'pending'};return b;}
+export function conferRegion(b,decision,reviewer){
+  if(!validBox(b)||!REVIEWERS.includes(reviewer)||!['keep','indeterminate'].includes(decision))throw Error('Conferência de região inválida.');
+  b.conference={status:'reviewed',decision,reviewer,reviewedAt:new Date().toISOString(),annotationSignature:regionSignature(b)};
+  return b;
+}
+export function regionConferred(b,reviewer){const c=b.conference;return c?.status==='reviewed'&&['keep','indeterminate'].includes(c.decision)&&c.reviewer===reviewer&&REVIEWERS.includes(reviewer)&&Number.isFinite(Date.parse(c.reviewedAt))&&c.annotationSignature===regionSignature(b);}
+export function conferenceSummary(boxes,reviewer,emptySceneExamined=false){
+  const reviewed=boxes.filter(b=>regionConferred(b,reviewer));
+  return {status:REVIEWERS.includes(reviewer)&&(boxes.length?reviewed.length===boxes.length:emptySceneExamined===true)?'complete':'pending',method:'manual_individual_visual',requiredRegions:boxes.length,reviewedRegions:reviewed.length,emptySceneExamined:boxes.length===0&&emptySceneExamined===true,indeterminateRegionIds:reviewed.filter(b=>b.conference.decision==='indeterminate').map(b=>b.id)};
+}
+export function restoreRegions(previous,current){
+  // Undo never resurrects a conference of a changed/restored region.
+  // Unchanged regions keep their most recent conference.
+  return previous.map(b=>{const live=current.find(c=>c.id===b.id);return live&&regionSignature(live)===regionSignature(b)?{...b,conference:live.conference}:invalidateRegion({...b});});
+}
+export function contextWindow(b){
+  // Display-only padding: gives neighboring pixels, never suggests annotation size.
+  const w=Math.min(1280,Math.max(256,b.width+2*Math.max(80,b.width*.6))),h=Math.min(576,Math.max(192,b.height+2*Math.max(80,b.height*.6)));
+  return {x:clamp(b.x+b.width/2-w/2,0,1280-w),y:clamp(b.y+b.height/2-h/2,0,576-h),width:w,height:h};
+}
+export function exportReview({reviewer,source,boxes,coverage,notes,emptySceneExamined=false}){
   if(!REVIEWERS.includes(reviewer)||!source||source.width!==1280||source.height!==576||! /^[a-f0-9]{64}$/.test(source.sha256))throw Error('Revisor ou imagem não verificados.');
   if(!['complete','partial','inadequate'].includes(coverage))throw Error('Informe a cobertura da cena.');
   if(!boxes.every(b=>validBox(b)&&['visible_body','IGNORE'].includes(b.category)&&['supported','approximate'].includes(b.certainty)))throw Error('Caixa inválida.');
-  return {schema:'astra-vision-review/0.1',status:'provisional_unvalidated',canonicalGroundTruth:false,blindPass:true,reviewer,scene:{...SCENE,timingAuthority:'scene filename and supplied frame index; not reverified from source video'},source:{...source},coordinateSystem:{origin:'top-left',units:'original-image-pixels',format:'xywh',extent:'visible-region-only'},coverage,notes,boxes:boxes.map(b=>({...b,xyxy:[b.x,b.y,b.x+b.width,b.y+b.height]})),createdAt:new Date().toISOString(),limitations:['Derived 1280×576 PNG; hidden contours and identities are not established.','Human review required before metrics or canonical ground truth.']};
+  const conference=conferenceSummary(boxes,reviewer,emptySceneExamined);
+  if(conference.status!=='complete')throw Error(boxes.length?'Confira individualmente todas as regiões, incluindo IGNORE, antes de exportar.':'Confirme explicitamente que a cena foi examinada sem caixas.');
+  return {schema:'astra-vision-review/0.2',status:'provisional_unvalidated',canonicalGroundTruth:false,blindPass:true,reviewer,scene:{...SCENE,timingAuthority:'scene filename and supplied frame index; not reverified from source video'},source:{...source},coordinateSystem:{origin:'top-left',units:'original-image-pixels',format:'xywh',extent:'visible-region-only'},coverage,notes,conference,boxes:boxes.map(b=>({...b,conference:{...b.conference},xyxy:[b.x,b.y,b.x+b.width,b.y+b.height]})),createdAt:new Date().toISOString(),limitations:['Derived 1280×576 PNG; hidden contours and identities are not established.','Human review required before metrics or canonical ground truth.','Conference records the reviewer decision, not independent validation; indeterminate regions are not reliable boundary references.']};
 }

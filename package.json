@@ -1,1 +1,1 @@
-{"name":"astra-vision-review","private":true,"version":"0.1.0","type":"module","scripts":{"test":"node --test tests/*.test.js"}}
+{"name":"astra-vision-review","private":true,"version":"0.2.0","type":"module","scripts":{"test":"node --test tests/*.test.js"}}
