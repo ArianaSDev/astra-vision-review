@@ -1,8 +1,16 @@
+import {createDiagnostics} from './diagnostics.js';
 import {validateManifest,MAX_MANIFEST_BYTES,MAX_FILE_BYTES,sha256} from './manifest.js';
 import {DEFAULT_EXTENT,clamp,point,rectangle,validBox,pngDimensions,extractPNG,verifyPNG,exportReview,regionSignature,invalidateRegion,conferRegion,regionConferred,conferenceSummary,restoreRegions,contextWindow} from './core.js';
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
 let image=null,source=null,boxes=[],selected=null,reviewer='',mode='visible_body',transform={x:0,y:0,scale:1},fitScale=1,history=[],gesture=null,pointers=new Map(),serial=0,busy=false,reviewingId=null;
 let manifest=null,manifestSource=null,scene=null,operation=0,exportedState=null,editorKey=null,editorBaseline=null;
+const diagnostic=createDiagnostics(()=>$('diagnostic-output'),()=>({
+  sceneVisual:$('scene').value,sceneInternal:scene?.id||null,
+  reviewerVisual:$('reviewer').value,reviewerInternal:reviewer,
+  imageLoaded:!!image,sourcePresent:!!source,
+  sourceScene:source?.sceneId||null,validatedBinding:!!(source&&scene&&source.sceneId===scene.id&&source.sha256===scene.sha256&&source.width===scene.width&&source.height===scene.height&&source.pngBytes===scene.pngBytes),
+  busy,mode,gesture:gesture?.type||null,pointers:pointers.size,regions:boxes.length
+}));
 const extent=()=>scene||DEFAULT_EXTENT;
 const message=text=>$('status').textContent=text;
 const current=()=>boxes.find(b=>b.id===selected);
@@ -13,9 +21,9 @@ function update(){
   $('count').textContent=boxes.length;$('boxes').replaceChildren();
   for(const b of boxes){const row=document.createElement('div');row.className='box-row'+(b.id===selected?' selected':'');const text=document.createElement('span');text.textContent=`${b.id} · ${b.category==='IGNORE'?'IGNORE':'Corpo visível'} · ${b.certainty==='supported'?'sustentada':'aproximada'} · ${regionConferred(b,reviewer)?(b.conference.decision==='indeterminate'?'conferida: indeterminável':'conferida'):'conferência pendente'} · (${b.x.toFixed(1)}, ${b.y.toFixed(1)}) ${b.width.toFixed(1)} × ${b.height.toFixed(1)}`;const button=document.createElement('button');button.textContent='Ajustar';button.addEventListener('click',()=>{selected=b.id;setMode('select');update();});row.append(text,button);$('boxes').append(row);}
   const b=current();$('selection').disabled=!b||busy;const key=b?regionSignature(b):null;if(key!==editorKey){for(const k of ['x','y','width','height'])$(k).value=b?Math.round(b[k]*10)/10:'';$('certainty').value=b?.certainty||'supported';$('boxnote').value=b?.note||'';editorKey=key;editorBaseline=editorValues();}
-  for(const id of ['coverage','notes','ack'])$(id).disabled=busy;document.querySelectorAll('[data-mode]').forEach(el=>el.disabled=busy);$('manifest').disabled=busy;$('scene').disabled=!manifest;$('file').disabled=!scene||busy;$('undo').disabled=!history.length||busy;updateConference();$('export').disabled=!source||!reviewer||!$('coverage').value||!$('ack').checked||busy||!!gesture||conferenceSummary(boxes,reviewer,$('empty-scene').checked).status!=='complete';render();
+  for(const id of ['coverage','notes','ack'])$(id).disabled=busy;document.querySelectorAll('[data-mode]').forEach(el=>el.disabled=busy);$('manifest').disabled=busy;$('scene').disabled=!manifest;$('file').disabled=!scene||busy;$('undo').disabled=!history.length||busy;updateConference();$('export').disabled=!source||!reviewer||!$('coverage').value||!$('ack').checked||busy||!!gesture||conferenceSummary(boxes,reviewer,$('empty-scene').checked).status!=='complete';render();diagnostic.refresh();
 }
-function setMode(value){mode=value;document.querySelectorAll('[data-mode]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.mode===value)));}
+function setMode(value){mode=value;document.querySelectorAll('[data-mode]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.mode===value)));diagnostic.refresh();}
 function drawConferenceView(el,b,view){
   const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;
   const dpr=Math.min(devicePixelRatio||1,3),c=el.getContext('2d');el.width=Math.round(w*dpr);el.height=Math.round(h*dpr);c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
@@ -60,19 +68,22 @@ function midpoint(a,b){return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
 function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
 function zoom(factor,anchor={x:canvas.clientWidth/2,y:canvas.clientHeight/2}){if(!image)return;const s=clamp(transform.scale*factor,fitScale,fitScale*12),k=s/transform.scale;transform={scale:s,x:anchor.x-(anchor.x-transform.x)*k,y:anchor.y-(anchor.y-transform.y)*k};render();}
 canvas.addEventListener('pointerdown',e=>{
-  if(!image||!reviewer||busy){message(!reviewer?'Selecione um revisor antes de anotar.':'Abra a imagem antes de anotar.');return;}e.preventDefault();$('export').disabled=true;canvas.setPointerCapture(e.pointerId);const p=local(e);pointers.set(e.pointerId,p);
-  if(pointers.size===2){if(gesture?.before)boxes=JSON.parse(gesture.before);const [a,b]=[...pointers.values()],m=midpoint(a,b);gesture={type:'pinch',distance:Math.max(1,distance(a,b)),start:m,transform:{...transform}};update();return;}
-  if(pointers.size>2)return;
-  const q=point(p.x,p.y,transform,extent());if(mode==='pan'){gesture={type:'pan',start:p,transform:{...transform}};return;}
+  diagnostic.record('pointerdown','received');
+  if(!image||!reviewer||busy){diagnostic.record('draw-rejected',[!image?'image_missing':null,!reviewer?'reviewer_missing':null,busy?'busy':null].filter(Boolean).join(','));message(!reviewer?'Selecione um revisor antes de anotar.':'Abra a imagem antes de anotar.');return;}e.preventDefault();$('export').disabled=true;try{canvas.setPointerCapture(e.pointerId);}catch(error){diagnostic.record('draw-rejected','capture_exception:'+error.name);throw error;}const p=local(e);pointers.set(e.pointerId,p);
+  if(pointers.size===2){diagnostic.record('draw-rejected','two_pointers_pinch');if(gesture?.before)boxes=JSON.parse(gesture.before);const [a,b]=[...pointers.values()],m=midpoint(a,b);gesture={type:'pinch',distance:Math.max(1,distance(a,b)),start:m,transform:{...transform}};update();return;}
+  if(pointers.size>2){diagnostic.record('draw-rejected','more_than_two_pointers');return;}
+  const q=point(p.x,p.y,transform,extent());if(mode==='pan'){diagnostic.record('draw-rejected','mode_pan');gesture={type:'pan',start:p,transform:{...transform}};return;}
   if(mode==='select'){
+    diagnostic.record('draw-rejected','mode_select');
     const active=current();let handle=active?corners(active).findIndex(c=>distance(c,q)<20/transform.scale):-1;
     const b=handle>=0?active:[...boxes].reverse().find(b=>q.x>=b.x&&q.x<=b.x+b.width&&q.y>=b.y&&q.y<=b.y+b.height);
     selected=b?.id||null;if(b)gesture={type:handle>=0?'resize':'move',handle,start:q,box:{...b},before:snapshot()};update();return;
   }
-  if(p.x<transform.x||p.y<transform.y||p.x>transform.x+scene.width*transform.scale||p.y>transform.y+scene.height*transform.scale)return;
-  gesture={type:'draw',start:q,end:q,before:snapshot()};render();
+  if(p.x<transform.x||p.y<transform.y||p.x>transform.x+scene.width*transform.scale||p.y>transform.y+scene.height*transform.scale){diagnostic.record('draw-rejected','start_outside_image');return;}
+  gesture={type:'draw',start:q,end:q,before:snapshot()};render();diagnostic.record('draw-started','accepted');
 });
 canvas.addEventListener('pointermove',e=>{
+  diagnostic.record('pointermove',pointers.has(e.pointerId)?'tracked':'untracked');
   if(!pointers.has(e.pointerId))return;e.preventDefault();const p=local(e);pointers.set(e.pointerId,p);if(!gesture)return;
   if(gesture.type==='pinch'&&pointers.size>=2){const [a,b]=[...pointers.values()],m=midpoint(a,b),old=gesture.transform;const s=clamp(old.scale*distance(a,b)/gesture.distance,fitScale,fitScale*12),k=s/old.scale;transform={scale:s,x:m.x-(gesture.start.x-old.x)*k,y:m.y-(gesture.start.y-old.y)*k};render();return;}
   if(gesture.type==='pan'){transform.x=gesture.transform.x+p.x-gesture.start.x;transform.y=gesture.transform.y+p.y-gesture.start.y;render();return;}
@@ -84,13 +95,15 @@ canvas.addEventListener('pointermove',e=>{
   render();
 });
 function endPointer(e){
+  diagnostic.record(e.type,pointers.has(e.pointerId)?'tracked':'untracked');
   if(!pointers.has(e.pointerId))return;pointers.delete(e.pointerId);
   if(gesture?.type==='pinch'){if(pointers.size===1){gesture={type:'pan',start:[...pointers.values()][0],transform:{...transform}};}else gesture=null;update();return;}
-  if(e.type==='pointercancel'){if(gesture?.before)boxes=JSON.parse(gesture.before);gesture=null;update();return;}
-  if(gesture?.type==='draw'){const b=rectangle(gesture.start,gesture.end);if(validBox(b,extent())&&b.width*transform.scale>=4&&b.height*transform.scale>=4){remember();const id=`B${++serial}`;boxes.push(invalidateRegion({id,category:mode,...b,certainty:'approximate',note:''}));$('empty-scene').checked=false;selected=id;}}
+  if(e.type==='pointercancel'){diagnostic.record('draw-rejected','pointercancel');if(gesture?.before)boxes=JSON.parse(gesture.before);gesture=null;update();return;}
+  if(gesture?.type==='draw'){const b=rectangle(gesture.start,gesture.end);if(validBox(b,extent())&&b.width*transform.scale>=4&&b.height*transform.scale>=4){remember();const id=`B${++serial}`;boxes.push(invalidateRegion({id,category:mode,...b,certainty:'approximate',note:''}));$('empty-scene').checked=false;selected=id;diagnostic.record('draw-committed','accepted');}else diagnostic.record('draw-rejected',!validBox(b,extent())?'invalid_geometry':'below_existing_minimum');}
   else if(gesture?.before&&snapshot()!==gesture.before){if(current())invalidateRegion(current());history.push(gesture.before);if(history.length>50)history.shift();}
   gesture=null;update();
 }
+canvas.addEventListener('lostpointercapture',()=>diagnostic.record('lostpointercapture','received'));
 canvas.addEventListener('pointerup',endPointer);canvas.addEventListener('pointercancel',endPointer);canvas.addEventListener('wheel',e=>{if(!image)return;e.preventDefault();zoom(e.deltaY<0?1.15:1/1.15,local(e));},{passive:false});
 function editorValues(){return ['x','y','width','height','certainty','boxnote'].map(k=>String($(k).value));}
 function pendingEditor(){return !!current()&&JSON.stringify(editorValues())!==JSON.stringify(editorBaseline);}
