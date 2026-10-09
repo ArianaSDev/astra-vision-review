@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 
 // DOM/canvas simulation: tests event logic, not rendering or actual device compatibility.
 class Element{
- constructor(id=''){this.id=id;this.value='';this.checked=false;this.disabled=false;this.hidden=false;this.textContent='';this.dataset={};this.handlers={};this.children=[];this.clientWidth=640;this.clientHeight=288;}
+ constructor(id=''){this.id=id;this.value='';this.checked=false;this.disabled=false;this.hidden=false;this.textContent='';this.dataset={};this.handlers={};this.children=[];this.clientWidth=640;this.clientHeight=288;this.drawCalls=[];}
  addEventListener(name,fn){this.handlers[name]=fn;}
  async fire(name,data={}){return this.handlers[name]?.({type:name,preventDefault(){},...data});}
  append(...els){this.children.push(...els);}
@@ -13,10 +13,11 @@ class Element{
  getBoundingClientRect(){return {left:0,top:0};}
  setPointerCapture(){}
  remove(){}
+ scrollIntoView(){}
  click(){if(this.download)downloads.push(this);}
- getContext(){return new Proxy({measureText:()=>({width:12})},{get:(t,k)=>k in t?t[k]:()=>{},set:(t,k,v)=>(t[k]=v,true)});}
+ getContext(){return new Proxy({measureText:()=>({width:12}),drawImage:(...args)=>this.drawCalls.push(args)},{get:(t,k)=>k in t?t[k]:()=>{},set:(t,k,v)=>(t[k]=v,true)});}
 }
-const ids='canvas status count boxes selection x y width height certainty boxnote notes coverage ack undo export zoom reviewer file empty provenance in out fit delete apply viewport'.split(' '),els=Object.fromEntries(ids.map(id=>[id,new Element(id)])),buttons=['visible_body','IGNORE','select','pan'].map(mode=>{const b=new Element();b.dataset.mode=mode;return b;}),downloads=[];
+const ids='canvas status count boxes selection x y width height certainty boxnote notes coverage ack undo export zoom reviewer file empty provenance in out fit delete apply viewport conference-progress review-start empty-scene-label empty-scene region-review review-title review-state review-crop review-overview review-keep review-adjust review-indeterminate review-prev review-next review-close'.split(' '),els=Object.fromEntries(ids.map(id=>[id,new Element(id)])),buttons=['visible_body','IGNORE','select','pan'].map(mode=>{const b=new Element();b.dataset.mode=mode;return b;}),downloads=[];
 globalThis.document={getElementById:id=>els[id],querySelectorAll:()=>buttons,createElement:()=>new Element(),body:new Element()};
 globalThis.devicePixelRatio=1;globalThis.ResizeObserver=class{observe(){}};globalThis.confirm=()=>true;globalThis.Image=class{naturalWidth=1280;naturalHeight=576;async decode(){}};
 const originalTimeout=globalThis.setTimeout;globalThis.setTimeout=(fn)=>{fn();return 0;};
@@ -30,7 +31,7 @@ test('local import, gesture coordinates, edits, IGNORE, export and reviewer isol
  els.x.value=1270;els.apply.onclick();assert.match(els.status.textContent,/inválidas/);els.x.value=110;els.certainty.value='supported';els.apply.onclick();assert.equal(els.x.value,110);
  await buttons[2].fire('click');await draw(80,40,90,50);assert.equal(els.x.value,130);assert.equal(els.y.value,80);
  await buttons[1].fire('click');await draw(250,100,275,125);assert.equal(els.count.textContent,2);assert.ok(els.boxes.children[1].children[0].textContent.includes('IGNORE'));
- els.coverage.value='partial';await els.coverage.fire('change');els.ack.checked=true;await els.ack.fire('change');assert.equal(els.export.disabled,false);
+ els.coverage.value='partial';await els.coverage.fire('change');els.ack.checked=true;await els.ack.fire('change');assert.equal(els.export.disabled,true);els['review-start'].onclick();els['review-keep'].onclick();assert.equal(els.export.disabled,true);els['review-keep'].onclick();assert.equal(els.export.disabled,false);
  const original=globalThis.setTimeout;globalThis.setTimeout=()=>0;els.export.onclick();globalThis.setTimeout=original;assert.equal(downloads.length,1);assert.match(downloads[0].download,/review-C05-R1/);
  await reviewer('R2');assert.equal(els.count.textContent,0);assert.equal(els.coverage.value,'');assert.equal(els.ack.checked,false);assert.equal(els.export.disabled,true);assert.ok(els.provenance.textContent.includes(provenance.sha256));
 });
@@ -38,3 +39,23 @@ test('two-finger pinch cancels pending drawing, zoom retains native coordinates,
  await buttons[0].fire('click');await els.canvas.fire('pointerdown',{pointerId:1,clientX:100,clientY:100});await els.canvas.fire('pointermove',{pointerId:1,clientX:140,clientY:120});await els.canvas.fire('pointerdown',{pointerId:2,clientX:200,clientY:120});await els.canvas.fire('pointermove',{pointerId:2,clientX:260,clientY:120});await els.canvas.fire('pointerup',{pointerId:2});await els.canvas.fire('pointerup',{pointerId:1});assert.equal(els.count.textContent,0);assert.equal(els.zoom.textContent,'200%');els.fit.onclick();await draw(50,50,100,100);assert.equal(els.x.value,100);assert.equal(els.count.textContent,1);els.delete.onclick();assert.equal(els.count.textContent,0);els.undo.onclick();assert.equal(els.count.textContent,1);
 });
 test('wrong image resolution cannot be exported',async()=>{const bytes=Buffer.alloc(33);bytes.set([137,80,78,71,13,10,26,10]);bytes.writeUInt32BE(13,8);bytes.write('IHDR',12);bytes.writeUInt32BE(640,16);bytes.writeUInt32BE(288,20);els.file.files=[{name:'C05_frame_23835.png',size:33,arrayBuffer:async()=>new Uint8Array(bytes).buffer}];await els.file.fire('change');assert.match(els.status.textContent,/exigida 1280/);assert.equal(els.export.disabled,true);assert.equal(els.count.textContent,0);});
+async function loadSynthetic(){const bytes=Buffer.alloc(33);bytes.set([137,80,78,71,13,10,26,10]);bytes.writeUInt32BE(13,8);bytes.write('IHDR',12);bytes.writeUInt32BE(1280,16);bytes.writeUInt32BE(576,20);els.file.files=[{name:'C05_frame_23835.png',size:33,arrayBuffer:async()=>new Uint8Array(bytes).buffer}];await els.file.fire('change');}
+async function exported(){const original=globalThis.setTimeout;globalThis.setTimeout=()=>0;try{els.export.onclick();}finally{globalThis.setTimeout=original;}const response=await fetch(downloads.at(-1).href);return response.json();}
+test('individual enlarged view with whole-scene context gates bodies and IGNORE independently',async()=>{
+ await reviewer('R3');await loadSynthetic();await buttons[0].fire('click');await draw(50,30,90,70);await buttons[1].fire('click');await draw(200,100,240,140);els.coverage.value='partial';await els.coverage.fire('change');els.ack.checked=true;await els.ack.fire('change');assert.equal(els.export.disabled,true);
+ els['review-start'].onclick();assert.match(els['review-title'].textContent,/B1/);assert.equal(els['region-review'].hidden,false);const crop=els['review-crop'].drawCalls.at(-1),whole=els['review-overview'].drawCalls.at(-1);assert.ok(crop[3]<1280&&crop[4]<576);assert.deepEqual(whole.slice(1,5),[0,0,1280,576]);
+ els['review-keep'].onclick();assert.equal(els.export.disabled,true);assert.match(els['review-title'].textContent,/IGNORE/);els['review-indeterminate'].onclick();assert.equal(els.export.disabled,false);
+ const data=await exported();assert.equal(data.schema,'astra-vision-review/0.2');assert.equal(data.conference.reviewedRegions,2);assert.deepEqual(data.conference.indeterminateRegionIds,['B2']);assert.equal(data.boxes[1].certainty,'approximate');assert.deepEqual(data.boxes[0].xyxy,[100,60,180,140]);assert.equal(data.boxes[1].conference.reviewer,'R3');
+});
+test('adjust choice invalidates only target, numeric edits and undo require its new conference',async()=>{
+ els['review-prev'].onclick();assert.match(els['review-title'].textContent,/B1/);els['review-adjust'].onclick();assert.equal(buttons[2]['aria-pressed'],'true');assert.match(els['conference-progress'].textContent,/1 de 2/);assert.equal(els.export.disabled,true);assert.equal(els['region-review'].hidden,true);els.x.value=105;els.apply.onclick();assert.equal(els.x.value,105);els.undo.onclick();assert.match(els['conference-progress'].textContent,/1 de 2/);els['review-start'].onclick();assert.match(els['review-title'].textContent,/B1/);els['review-keep'].onclick();assert.equal(els.export.disabled,false);const d=await exported();assert.equal(d.boxes[1].conference.decision,'indeterminate');
+});
+test('pointer adjustment under zoom invalidates target without changing other conferences',async()=>{
+ els['review-close'].onclick();await els.boxes.children[1].children[1].fire('click');els.fit.onclick();els.in.onclick();await draw(180,110.4,194,124.4);assert.match(els['conference-progress'].textContent,/1 de 2/);assert.equal(els.x.value,420);assert.equal(els.y.value,220);assert.equal(els.export.disabled,true);els['review-start'].onclick();assert.match(els['review-title'].textContent,/B2/);els['review-indeterminate'].onclick();assert.equal(els.export.disabled,false);const d=await exported();d.boxes[1].xyxy.forEach((v,i)=>assert.ok(Math.abs(v-[420,220,500,300][i])<1e-9));assert.equal(d.boxes[0].conference.status,'reviewed');
+});
+test('zero-region passage requires explicit confirmation after deleting last box',async()=>{
+ els.delete.onclick();await els.boxes.children[0].children[1].fire('click');els.delete.onclick();assert.equal(els.count.textContent,0);assert.equal(els['empty-scene'].checked,false);assert.equal(els.export.disabled,true);els['empty-scene'].checked=true;await els['empty-scene'].fire('change');assert.equal(els.export.disabled,false);const d=await exported();assert.deepEqual(d.boxes,[]);assert.equal(d.conference.emptySceneExamined,true);assert.equal(d.canonicalGroundTruth,false);
+});
+test('reviewer switch clears zero-region conference and all view/annotation state',async()=>{
+ await reviewer('R1');assert.equal(els['empty-scene'].checked,false);assert.equal(els['region-review'].hidden,true);assert.equal(els.export.disabled,true);assert.equal(els.coverage.value,'');assert.equal(els.notes.value,'');assert.equal(els.count.textContent,0);
+});
