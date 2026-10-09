@@ -1,18 +1,48 @@
-import {SCENE,clamp,point,rectangle,validBox,pngDimensions,extractC05,exportReview} from './core.js';
+import {SCENE,clamp,point,rectangle,validBox,pngDimensions,extractC05,exportReview,regionSignature,invalidateRegion,conferRegion,regionConferred,conferenceSummary,restoreRegions,contextWindow} from './core.js';
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
-let image=null,source=null,boxes=[],selected=null,reviewer='',mode='visible_body',transform={x:0,y:0,scale:1},fitScale=1,history=[],gesture=null,pointers=new Map(),serial=0,busy=false;
+let image=null,source=null,boxes=[],selected=null,reviewer='',mode='visible_body',transform={x:0,y:0,scale:1},fitScale=1,history=[],gesture=null,pointers=new Map(),serial=0,busy=false,reviewingId=null;
 const message=text=>$('status').textContent=text;
 const current=()=>boxes.find(b=>b.id===selected);
 const snapshot=()=>JSON.stringify(boxes);
 function remember(){history.push(snapshot());if(history.length>50)history.shift();}
-function clean(){boxes=[];selected=null;history=[];serial=0;$('notes').value='';$('coverage').value='';$('ack').checked=false;update();}
+function clean(){reviewingId=null;$('empty-scene').checked=false;boxes=[];selected=null;history=[];serial=0;$('notes').value='';$('coverage').value='';$('ack').checked=false;update();}
 function update(){
   $('count').textContent=boxes.length;$('boxes').replaceChildren();
-  for(const b of boxes){const row=document.createElement('div');row.className='box-row'+(b.id===selected?' selected':'');const text=document.createElement('span');text.textContent=`${b.id} · ${b.category==='IGNORE'?'IGNORE':'Corpo visível'} · ${b.certainty==='supported'?'sustentada':'aproximada'} · (${b.x.toFixed(1)}, ${b.y.toFixed(1)}) ${b.width.toFixed(1)} × ${b.height.toFixed(1)}`;const button=document.createElement('button');button.textContent='Ajustar';button.addEventListener('click',()=>{selected=b.id;setMode('select');update();});row.append(text,button);$('boxes').append(row);}
+  for(const b of boxes){const row=document.createElement('div');row.className='box-row'+(b.id===selected?' selected':'');const text=document.createElement('span');text.textContent=`${b.id} · ${b.category==='IGNORE'?'IGNORE':'Corpo visível'} · ${b.certainty==='supported'?'sustentada':'aproximada'} · ${regionConferred(b,reviewer)?(b.conference.decision==='indeterminate'?'conferida: indeterminável':'conferida'):'conferência pendente'} · (${b.x.toFixed(1)}, ${b.y.toFixed(1)}) ${b.width.toFixed(1)} × ${b.height.toFixed(1)}`;const button=document.createElement('button');button.textContent='Ajustar';button.addEventListener('click',()=>{selected=b.id;setMode('select');update();});row.append(text,button);$('boxes').append(row);}
   const b=current();$('selection').disabled=!b;for(const k of ['x','y','width','height'])$(k).value=b?Math.round(b[k]*10)/10:'';$('certainty').value=b?.certainty||'supported';$('boxnote').value=b?.note||'';
-  $('undo').disabled=!history.length||busy;$('export').disabled=!source||!reviewer||!$('coverage').value||!$('ack').checked||busy;render();
+  $('undo').disabled=!history.length||busy;updateConference();$('export').disabled=!source||!reviewer||!$('coverage').value||!$('ack').checked||busy||!!gesture||conferenceSummary(boxes,reviewer,$('empty-scene').checked).status!=='complete';render();
 }
 function setMode(value){mode=value;document.querySelectorAll('[data-mode]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.mode===value)));}
+function drawConferenceView(el,b,view){
+  const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;
+  const dpr=Math.min(devicePixelRatio||1,3),c=el.getContext('2d');el.width=Math.round(w*dpr);el.height=Math.round(h*dpr);c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+  const scale=Math.min(w/view.width,h/view.height),x=(w-view.width*scale)/2,y=(h-view.height*scale)/2;
+  c.drawImage(image,view.x,view.y,view.width,view.height,x,y,view.width*scale,view.height*scale);
+  c.strokeStyle=b.category==='IGNORE'?'#ffbd6b':'#72e0cf';c.lineWidth=2;c.setLineDash(b.category==='IGNORE'?[7,5]:[]);c.strokeRect(x+(b.x-view.x)*scale,y+(b.y-view.y)*scale,b.width*scale,b.height*scale);
+}
+function updateConference(){
+  const summary=conferenceSummary(boxes,reviewer,$('empty-scene').checked),b=boxes.find(b=>b.id===reviewingId);
+  $('conference-progress').textContent=boxes.length?`${summary.reviewedRegions} de ${boxes.length} regiões conferidas, incluindo IGNORE.`:($('empty-scene').checked?'Passagem com zero caixas confirmada.':'Zero caixas: confirme explicitamente o exame da cena.');
+  $('review-start').disabled=!source||!reviewer||!boxes.length||busy||!!gesture;
+  $('empty-scene-label').hidden=boxes.length>0;$('empty-scene').disabled=!source||!reviewer||busy;
+  const active=!!(image&&source&&reviewer&&b&&!busy);$('region-review').hidden=!active;
+  for(const id of ['review-keep','review-adjust','review-indeterminate','review-prev','review-next','review-close'])$(id).disabled=!active||!!gesture;
+  if(!active)return;
+  $('review-title').textContent=`${b.id} · ${b.category==='IGNORE'?'IGNORE':'Corpo visível'}`;
+  $('review-state').textContent=regionConferred(b,reviewer)?(b.conference.decision==='indeterminate'?'Conferida: limites registrados como não determináveis com segurança.':'Conferida: caixa mantida, com a incerteza informada.'): 'Conferência pendente. A vista ampliada não altera as coordenadas.';
+  drawConferenceView($('review-crop'),b,contextWindow(b));drawConferenceView($('review-overview'),b,{x:0,y:0,width:1280,height:576});
+}
+function openReview(){
+  if(!image||!reviewer||!boxes.length||busy||gesture)return;
+  const pending=boxes.find(b=>b.id===reviewingId&&!regionConferred(b,reviewer))||boxes.find(b=>!regionConferred(b,reviewer));
+  reviewingId=(pending||current()||boxes[0]).id;update();$('region-review').scrollIntoView({block:'start',behavior:'smooth'});
+}
+function changeReview(delta){const i=boxes.findIndex(b=>b.id===reviewingId);if(i<0)return;reviewingId=boxes[(i+delta+boxes.length)%boxes.length].id;update();}
+function confirmDisplayed(decision){
+  const b=boxes.find(b=>b.id===reviewingId);if(!b||!source||!reviewer||busy||gesture||$('region-review').hidden)return;
+  conferRegion(b,decision,reviewer);const next=boxes.find(candidate=>!regionConferred(candidate,reviewer));if(next)reviewingId=next.id;update();
+  message(next?'Decisão registrada. Examine a próxima região.':'Conferência individual concluída. O resultado continua provisório.');
+}
 function fit(){if(!image)return;fitScale=Math.min(canvas.clientWidth/SCENE.width,canvas.clientHeight/SCENE.height);transform={scale:fitScale,x:(canvas.clientWidth-SCENE.width*fitScale)/2,y:(canvas.clientHeight-SCENE.height*fitScale)/2};render();}
 function render(){
   const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,3);if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!image)return;
@@ -27,7 +57,7 @@ function midpoint(a,b){return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
 function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
 function zoom(factor,anchor={x:canvas.clientWidth/2,y:canvas.clientHeight/2}){if(!image)return;const s=clamp(transform.scale*factor,fitScale,fitScale*12),k=s/transform.scale;transform={scale:s,x:anchor.x-(anchor.x-transform.x)*k,y:anchor.y-(anchor.y-transform.y)*k};render();}
 canvas.addEventListener('pointerdown',e=>{
-  if(!image||!reviewer||busy){message(!reviewer?'Selecione um revisor antes de anotar.':'Abra a imagem antes de anotar.');return;}e.preventDefault();canvas.setPointerCapture(e.pointerId);const p=local(e);pointers.set(e.pointerId,p);
+  if(!image||!reviewer||busy){message(!reviewer?'Selecione um revisor antes de anotar.':'Abra a imagem antes de anotar.');return;}e.preventDefault();$('export').disabled=true;canvas.setPointerCapture(e.pointerId);const p=local(e);pointers.set(e.pointerId,p);
   if(pointers.size===2){if(gesture?.before)boxes=JSON.parse(gesture.before);const [a,b]=[...pointers.values()],m=midpoint(a,b);gesture={type:'pinch',distance:Math.max(1,distance(a,b)),start:m,transform:{...transform}};update();return;}
   if(pointers.size>2)return;
   const q=point(p.x,p.y,transform);if(mode==='pan'){gesture={type:'pan',start:p,transform:{...transform}};return;}
@@ -54,8 +84,8 @@ function endPointer(e){
   if(!pointers.has(e.pointerId))return;pointers.delete(e.pointerId);
   if(gesture?.type==='pinch'){if(pointers.size===1){gesture={type:'pan',start:[...pointers.values()][0],transform:{...transform}};}else gesture=null;return;}
   if(e.type==='pointercancel'){if(gesture?.before)boxes=JSON.parse(gesture.before);gesture=null;update();return;}
-  if(gesture?.type==='draw'){const b=rectangle(gesture.start,gesture.end);if(validBox(b)&&b.width*transform.scale>=4&&b.height*transform.scale>=4){remember();const id=`B${++serial}`;boxes.push({id,category:mode,...b,certainty:'approximate',note:''});selected=id;}}
-  else if(gesture?.before&&snapshot()!==gesture.before){history.push(gesture.before);if(history.length>50)history.shift();}
+  if(gesture?.type==='draw'){const b=rectangle(gesture.start,gesture.end);if(validBox(b)&&b.width*transform.scale>=4&&b.height*transform.scale>=4){remember();const id=`B${++serial}`;boxes.push(invalidateRegion({id,category:mode,...b,certainty:'approximate',note:''}));$('empty-scene').checked=false;selected=id;}}
+  else if(gesture?.before&&snapshot()!==gesture.before){if(current())invalidateRegion(current());history.push(gesture.before);if(history.length>50)history.shift();}
   gesture=null;update();
 }
 canvas.addEventListener('pointerup',endPointer);canvas.addEventListener('pointercancel',endPointer);canvas.addEventListener('wheel',e=>{if(!image)return;e.preventDefault();zoom(e.deltaY<0?1.15:1/1.15,local(e));},{passive:false});
@@ -77,9 +107,20 @@ $('file').addEventListener('change',async()=>{
 });
 document.querySelectorAll('[data-mode]').forEach(el=>el.addEventListener('click',()=>setMode(el.dataset.mode)));
 $('in').onclick=()=>zoom(1.4);$('out').onclick=()=>zoom(1/1.4);$('fit').onclick=fit;
-$('undo').onclick=()=>{if(history.length){boxes=JSON.parse(history.pop());selected=null;update();}};
-$('delete').onclick=()=>{if(!current())return;remember();boxes=boxes.filter(b=>b.id!==selected);selected=null;update();};
-$('apply').onclick=()=>{const b=current();if(!b)return;const r=Object.fromEntries(['x','y','width','height'].map(k=>[k,Number($(k).value)]));if(!validBox(r)){message('Coordenadas inválidas: mantenha a caixa dentro de 1280 × 576, com largura e altura ≥ 1.');return;}remember();Object.assign(b,r,{certainty:$('certainty').value,note:$('boxnote').value});update();message('Ajustes aplicados em pixels originais.');};
-for(const id of ['coverage','ack'])$(id).addEventListener('change',update);
-$('export').onclick=()=>{try{const data=exportReview({reviewer,source,boxes,coverage:$('coverage').value,notes:$('notes').value});const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`review-C05-${reviewer}-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);message('JSON gerado localmente. Confira o arquivo em Downloads/Arquivos do aparelho.');}catch(error){message(error.message);}};
-new ResizeObserver(()=>{if(image)fit();else render();}).observe($('viewport'));update();
+$('undo').onclick=()=>{if(history.length){boxes=restoreRegions(JSON.parse(history.pop()),boxes);$('empty-scene').checked=false;selected=null;update();}};
+$('delete').onclick=()=>{if(!current())return;remember();boxes=boxes.filter(b=>b.id!==selected);$('empty-scene').checked=false;selected=null;update();};
+$('apply').onclick=()=>{const b=current();if(!b)return;const r=Object.fromEntries(['x','y','width','height'].map(k=>[k,Number($(k).value)]));if(!validBox(r)){message('Coordenadas inválidas: mantenha a caixa dentro de 1280 × 576, com largura e altura ≥ 1.');return;}const before=regionSignature(b);remember();Object.assign(b,r,{certainty:$('certainty').value,note:$('boxnote').value});if(regionSignature(b)!==before)invalidateRegion(b);update();message('Ajustes aplicados em pixels originais.');};
+for(const id of ['coverage','ack','empty-scene'])$(id).addEventListener('change',update);
+$('export').onclick=()=>{try{if(busy||gesture||!$('ack').checked)throw Error('Conclua a edição e confirme esta passagem independente.');const data=exportReview({reviewer,source,boxes,coverage:$('coverage').value,notes:$('notes').value,emptySceneExamined:$('empty-scene').checked});const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`review-C05-${reviewer}-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);message('JSON gerado localmente. Confira o arquivo em Downloads/Arquivos do aparelho.');}catch(error){message(error.message);}};
+$('review-start').onclick=openReview;
+$('review-keep').onclick=()=>confirmDisplayed('keep');$('review-indeterminate').onclick=()=>confirmDisplayed('indeterminate');
+$('review-prev').onclick=()=>changeReview(-1);$('review-next').onclick=()=>changeReview(1);
+$('review-close').onclick=()=>{reviewingId=null;update();};
+$('review-adjust').onclick=()=>{
+  const b=boxes.find(b=>b.id===reviewingId);if(!b||busy||gesture)return;
+  invalidateRegion(b);selected=b.id;setMode('select');reviewingId=null;
+  const view=contextWindow(b),scale=clamp(Math.min(canvas.clientWidth/view.width,canvas.clientHeight/view.height),fitScale,fitScale*12);
+  transform={scale,x:canvas.clientWidth/2-(b.x+b.width/2)*scale,y:canvas.clientHeight/2-(b.y+b.height/2)*scale};update();
+  canvas.scrollIntoView({block:'center',behavior:'smooth'});message('Ajuste esta região e use Conferir caixas novamente. As demais conferências foram preservadas.');
+};
+new ResizeObserver(()=>{if(image)fit();else render();updateConference();}).observe($('viewport'));update();
