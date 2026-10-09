@@ -1,0 +1,6 @@
+*.png
+*.zip
+*.mp4
+*.pth
+review-*.json
+node_modules/
