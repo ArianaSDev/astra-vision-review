@@ -1,52 +1,77 @@
 # ASTRA Vision Review
 
-Interface independente para primeira revisão cega de C05. Processamento exclusivamente no navegador, sem telemetria, serviços de upload, CDN, detector ou armazenamento de respostas. Este repositório contém somente código e testes sintéticos; não contém imagens ou dados do projeto Astra.
+Interface estática independente para revisão cega de uma cena por sessão. Processamento local no navegador, sem telemetria, upload, backend, CDN, detector ou armazenamento de respostas. O repositório contém somente código genérico e fixtures públicas sintéticas.
 
 ## Uso no celular
 
-1. Abra o site HTTPS e selecione R1, R2, R3 ou TEST.
-2. Em **Abrir PNG ou ZIP local**, use o seletor de arquivos do aparelho para selecionar `C05_frame_23835.png` ou `Kagura_Cenas_Candidatas.zip`. A imagem deve ter exatamente 1280 × 576. O PNG é decodificado localmente e seu SHA-256 é calculado sobre os bytes originais.
-3. Desenhe **Corpo visível** ou **IGNORE** arrastando um dedo. Use dois dedos para zoom/movimento ou os botões de zoom. Em **Ajustar**, selecione a caixa, arraste o centro ou um canto. Os campos numéricos permitem ajuste fino em pixels originais.
-4. Confirme limites sustentados ou aproximados. Não extrapole partes ocultas; registre ambiguidades nas observações. IGNORE serve para exclusões/distratores, nunca como classe de personagem.
-5. Use **Conferir caixas** para examinar cada região ampliada junto à cena inteira. Escolha manter, ajustar ou registrar limites não determináveis. Inclua IGNORE. Ajustes tornam apenas a região alterada pendente; confira-a novamente. Com zero caixas, confirme explicitamente o exame da cena.
-6. Informe cobertura, observações e confirmação de independência. Exporte um JSON local. No iPhone, confira Downloads no app Arquivos.
+1. Abra a versão autorizada por HTTPS e escolha R1, R2, R3 ou TEST.
+2. Abra um **manifesto local** preparado e conferido em ambiente privado. Selecione uma cena. O site não fornece uma fila privada embutida.
+3. Abra o PNG cujo nome corresponde à cena ou um ZIP contendo seu caminho exato. Tamanho, resolução e SHA-256 dos bytes originais devem corresponder ao manifesto. O navegador também decodifica o PNG; não há recodificação.
+4. Desenhe **Corpo visível** ou **IGNORE** arrastando um dedo. Use dois dedos ou os botões para zoom/movimento. Em **Ajustar**, arraste o centro/canto ou aplique campos numéricos em pixels originais. IGNORE é exclusão/distrator, nunca classe de personagem.
+5. Registre limites sustentados ou aproximados e incertezas sem extrapolar partes ocultas. Use **Conferir caixas** para examinar cada região ampliada com contexto e a cena inteira. Escolha manter, ajustar ou limites não determináveis. Todas as regiões, incluindo IGNORE, precisam de conferência.
+6. Declare cobertura completa, parcial ou inadequada, observações e independência. Com zero caixas, confirme explicitamente o exame da cena. Exporte um JSON local individual; confira Downloads/Arquivos no aparelho.
 
-Trocar de revisor limpa caixas, cobertura e observações. A página não carrega anotações anteriores, propostas de IA nem revisões de outras pessoas. Não existe backend. Fechar/recarregar a página perde dados não exportados.
+Trocar cena, revisor, manifesto ou imagem solicita descarte quando houver estado não exportado, incluindo cobertura, confirmações, observações e campos de ajuste ainda não aplicados. Trocar cena limpa imagem e anotações; trocar revisor preserva somente a imagem verificada e limpa a revisão. Uma operação assíncrona cancelada não instala seus resultados posteriormente. Não há importação de respostas, propostas de IA ou revisão de outras pessoas. Recarregar/fechar perde o estado; o aviso de saída depende do suporte do navegador. A geração do download não comprova que o aparelho salvou o arquivo.
 
-## Formato e autoridade
+## Manifesto local estrito
 
-JSON `astra-vision-review/0.2`: cena, revisor, SHA-256, bytes do PNG, resolução, origem local, caminho da entrada ZIP, caixas `xywh` e `xyxy`, certeza dos limites, cobertura e observações. Coordenadas têm origem no canto superior esquerdo da imagem original. Identificadores B1… são apenas IDs locais de regiões, não identidades de personagens. Nenhum `heroId` ou `entityId` é produzido.
+Schema `astra-vision-review-manifest/0.1`. Somente os campos abaixo são aceitos; campos extras ou ausentes são rejeitados, inclusive bounding boxes, propostas, revisões e GT. Não publique manifestos reais neste repositório. O formato mínimo é:
 
-Toda exportação é `provisional_unvalidated`, `canonicalGroundTruth:false`. Não é GT locked nem referência definitiva para métricas. Revisão humana independente é necessária. O índice de frame e timestamp de C05 são metadados da cena fornecidos, não verificação independente do vídeo. Um PNG com nome correto e resolução correta ainda requer confirmação humana de seu conteúdo.
+```text
+{ schema: "astra-vision-review-manifest/0.1", scenes: [
+  { id, pngPath, width, height, pngBytes, sha256,
+    frameIndex, timestampSeconds, timestamp, timingAuthority, limitations }
+] }
+```
 
-## ZIP e limites
+| Campo | Tipo e regra |
+|---|---|
+| `scenes` | Array de 1–64 cenas; IDs, caminhos e basenames únicos |
+| `id` | String ASCII de 1–64 caracteres: letra/dígito inicial, depois letra/dígito/`_`/`-` |
+| `pngPath` | Caminho relativo exato, até 512 caracteres, ASCII letra/dígito/`_`/`-`/`.`/`/`, extensão `.png`; sem `/` inicial, segmentos vazios, `.` ou `..`, barra invertida ou URL |
+| `width`, `height` | Inteiros positivos até 4096, sistema original de coordenadas |
+| `pngBytes` | Inteiro de 33 a 20 MiB, tamanho esperado dos bytes originais |
+| `sha256` | String de 64 caracteres hexadecimais minúsculos, calculada do PNG real |
+| `frameIndex` | Inteiro seguro não negativo, declarado pela fonte |
+| `timestampSeconds` | Número finito não negativo, equivalente ao timestamp textual |
+| `timestamp` | String `HH:MM:SS.mmm`, horas de 2–6 dígitos, minutos/segundos 00–59 |
+| `timingAuthority` | String não vazia, até 1000 caracteres, sem controles |
+| `limitations` | Array de 1–20 strings não vazias, até 1000 caracteres cada, sem controles |
 
-Somente a entrada com basename exato `C05_frame_23835.png` é utilizada; nenhuma proposta ou manifesto é importado. Duplicatas são rejeitadas. Suporte a ZIP STORED e DEFLATE com `DecompressionStream('deflate-raw')`; navegadores sem essa API recebem orientação para abrir o PNG extraído no próprio aparelho. ZIP64, multipartes e criptografados não são suportados. Limite de entrada 100 MB e PNG 20 MB; CRC-32 da entrada ZIP é verificado. Nenhuma recodificação é feita.
+Limite de manifesto: 1 MiB. Esses limites são de recursos/formato, não limiares de qualidade de anotação. O aplicativo calcula também SHA-256 dos bytes do manifesto para a proveniência. A correspondência de hash identifica bytes; não autentica autoria nem comprova temporalidade. Não se deduz FPS a partir de `frameIndex`. Metadados temporais e limitações são declarações da fonte local e precisam de autoridade externa apropriada.
 
-## Desenvolvimento e publicação
+## ZIP e segurança
 
-Sem dependências de runtime ou instalação. `node --test tests/*.test.js` executa testes locais sintéticos. Sirva `docs/` por HTTP localhost para desenvolvimento ou HTTPS para uso real; abrir o HTML via `file://` não é o fluxo suportado para módulos/SHA-256.
+Somente a entrada com **caminho completo exato** declarado é extraída; não se substitui por outro basename. Não se lê conteúdo de propostas ou revisões presentes no ZIP. Duplicatas da entrada, cabeçalhos inconsistentes, CRC-32 incorreto e tamanhos incompatíveis são rejeitados. Suporte a STORED e DEFLATE via `DecompressionStream('deflate-raw')`, com limite de descompressão; quando indisponível, abra o PNG extraído no próprio aparelho. ZIP64, multipartes, criptografados e outros métodos não são suportados. Arquivo até 100 MiB e PNG até 20 MiB.
 
-GitHub Pages: Settings → Pages → **Deploy from a branch**, branch **main**, pasta **/docs**. A pasta `docs/` contém o site final. Os testes e documentação ficam fora do site publicado. Não envie imagens, ZIPs ou resultados de revisões ao repositório. `.gitignore` é uma prevenção adicional, não um controle de confidencialidade.
+CSP mantém `connect-src 'none'`, scripts/estilos locais, imagens locais/blob, `object-src 'none'`, `base-uri 'none'` e `form-action 'none'`. A carga usa `File.arrayBuffer`, WebCrypto, Blob e Image locais. A exportação usa um download Blob; não faz requisição remota. Campos são mostrados com `textContent`. Não há persistência de revisão em cookies/storage. O carregamento inicial do código estático usa a hospedagem; os bytes dos arquivos selecionados e suas revisões não são enviados por este código. `.gitignore` é prevenção adicional, não controle de confidencialidade.
 
-## Validação
+## Exportação v0.3 e compatibilidade documental
 
-Testes verificam importação PNG, importação ZIP STORED/DEFLATE, CRC e rejeições, transformação de coordenadas sob zoom/movimento, limites de caixas e exportação individual provisória. Testes de interação usam DOM/canvas simulados; não substituem testes nos aparelhos. Compatibilidade real em Chrome Android e Safari iPhone deve ser confirmada nesses dispositivos. Não se afirma desempenho de detector ou tracking.
+Schema novo **`astra-vision-review/0.3`**. Identidade da cena, resolução, frame e timestamp passam a vir do manifesto local. `session` vincula cena, SHA-256 do PNG e revisor; `manifestSource` registra nome, tamanho, SHA-256 e schema do manifesto. `source` inclui cena, container PNG/ZIP e entrada exata. O nome é `review-<sceneId>-<reviewer>-<instante>.json`.
 
-## Conferência individual v0.2
+Os significados v0.1/v0.2 de revisor, origem, hash, geometria, cobertura e observações são preservados. `xywh` e `xyxy` continuam em pixels originais, origem no canto superior esquerdo. IDs B1… identificam apenas regiões locais. Nenhum heroId/entityId é atribuído. Exportações anteriores, adjudicações e comparações não são importadas, migradas ou modificadas; não recebem conferência retroativa. A fila é exclusivamente a seleção explícita do manifesto, sem reinclusão automática de cenas históricas.
 
-Cada caixa tem `conference` com status, decisão `keep` ou `indeterminate`, revisor, instante e assinatura dos atributos atuais da região. A assinatura é uma comparação exata de estado, não uma métrica de qualidade. Alterar coordenadas, certeza ou observação invalida a conferência apenas daquela caixa. Escolher **Ajustar a caixa** também a torna pendente e ativa a ferramenta Ajustar; **Conferir caixas** abre sua nova conferência. Desfazer não revalida regiões restauradas/alteradas e preserva a conferência atual das demais.
+Conferência v0.2 preservada: decisão `keep`/`indeterminate`, revisor, instante e assinatura exata dos atributos da região. Alterar geometria, certeza ou nota invalida somente aquela conferência. Ajustar também invalida; undo não ressuscita conferência da região restaurada/alterada. `certainty` não é promovida de `approximate` a `supported`. `indeterminate` não é referência confiável de limites. Zero caixas exige `emptySceneExamined:true`, que não prova ausência absoluta de personagens.
 
-O campo `conference` geral registra conclusão, contagens e IDs das regiões indetermináveis. Com zero caixas, `emptySceneExamined:true` requer confirmação explícita na interface; não equivale a ausência comprovada de personagens. Todas as regiões, inclusive IGNORE, devem ser conferidas.
+Toda exportação é `provisional_unvalidated`, `canonicalGroundTruth:false`, `trainingAuthorized:false`. Conferência não equivale a adjudicação independente, GT canônico, prontidão de treinamento ou resultado de detector. Consumidores devem reconhecer explicitamente o schema 0.3; não se alega compatibilidade com contratos internos não verificados.
 
-Os campos v0.1 de identidade da cena, revisor, origem, hash, geometria, cobertura, observações e autoridade mantêm seu significado. `certainty` continua sendo a classificação informada durante a edição; a decisão de conferência é registrada separadamente e não transforma `approximate` em `supported`. `indeterminate` declara que o limite não é uma referência confiável, mesmo quando a revisão está completa. Revisões v0.1 já exportadas não são importadas nem alteradas. Conferência individual não é adjudicação independente, GT validado ou resultado de detector.
+## Desenvolvimento e validação
 
-A imagem original é apenas desenhada no canvas: recorte contextual e cena inteira não alteram seus bytes ou as coordenadas. O espaçamento do recorte serve exclusivamente à exibição de contexto; não sugere tamanho de caixa ou resposta. Não há referência automática, comparação com outros revisores, correção por IA ou rótulo de acerto.
+Sem dependências de runtime ou instalação. Execute `npm test` ou `node --test tests/*.test.js`. Sirva `docs/` em HTTPS ou localhost; `file://` não é fluxo suportado para módulos e SHA-256. Os testes sintéticos cobrem os 22 casos anteriores, agora parametrizados, e os casos multicena: manifesto estrito, PNG/hash, ZIP/CRC/limites, geometria, isolamento, estado pendente, concorrência, exportação e controles locais. Fixtures de cabeçalho PNG e DOM/canvas/Image simulados testam lógica; não comprovam renderização, decodificação real no aparelho ou suporte físico a gestos.
 
-### Validação desta alteração
+## Gate manual — POCO X7 Pro
 
-22 testes automatizados: os nove casos anteriores (adaptados apenas à nova conferência obrigatória) e 13 casos adicionais, cobrindo gate individual, IGNORE, indeterminável, ajustes numéricos/ponteiro, desfazer, zero caixas, troca de revisor, coordenadas, contexto e JSON v0.2. DOM/canvas simulados não comprovam gestos em dispositivos físicos.
+Usar **TEST**, nunca iniciar revisão humana durante este gate. Somente após disponibilização de uma prévia aprovada, sem trocar main/Pages:
 
-### Entrega isolada
+1. Carregar manifesto local válido; conferir lista de cenas. Rejeitar manifesto com campo extra de anotação e manifesto com tipo/timestamp inválido.
+2. Selecionar duas cenas diferentes, abrir cada PNG e o mesmo ZIP, verificar SHA-256/resolução/proveniência. Rejeitar PNG de outra cena e ZIP com entrada errada/duplicada/CRC inválido (fixtures sintéticas para testes negativos).
+3. Desenhar corpo e IGNORE, pinçar/mover, ajustar pelo dedo/campo, excluir e desfazer. Conferir que coordenadas permanecem originais e limites dentro da imagem.
+4. Conferir todas as regiões; verificar bloqueio antes da última. Manter uma aproximada e registrar outra indeterminável. Ajustar somente uma e confirmar que apenas ela exige nova conferência.
+5. Exportar com cobertura parcial; inspecionar schema, cena, hash, revisor, xywh/xyxy, conferências e autoridade provisória. Não publicar o JSON.
+6. Alterar isoladamente cobertura, observações, confirmação de independência, confirmação zero caixas e um campo de ajuste sem aplicar. Tentar troca de cena/revisor/arquivo: cancelar preserva; aceitar descarta. Conferir ausência de dados do revisor anterior.
+7. Trocar cena ou revisor enquanto PNG/ZIP/manifesto carrega; verificar que resultado antigo não reaparece. Testar falha de importação e novo arquivo válido.
+8. Fazer zero caixas, declarar cobertura completa/parcial/inadequada e confirmar exame explícito; exportação deve funcionar somente após confirmações.
+9. Confirmar arquivo baixado no aparelho e comparar bindings de duas exportações de cenas diferentes. Conferir ausência de requisições de upload/telemetria nos caminhos de leitura e exportação, quando inspeção de rede estiver disponível.
 
-Branch `feat/pre-export-neutral-box-review`, baseada em `99c447b74d4564245b188c490439dd3fec751928`. Não atualizar main nem GitHub Pages enquanto R1 estiver revisando. O merge e a publicação da v0.2 exigem autorização posterior.
+Registrar navegador/versão, orientação da tela e qualquer falha. Safari iPhone é um teste separado ainda necessário. Este PR permanece DRAFT: nenhum merge, alteração de configuração Pages, nova publicação ou gate físico é presumido a partir dos testes automatizados.
