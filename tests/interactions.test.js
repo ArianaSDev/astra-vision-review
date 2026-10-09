@@ -97,3 +97,15 @@ test('failed hash and invalid contaminated manifest cannot authorize export',asy
 test('UI ZIP import binds each scene and rejects duplicated entry',async()=>{
  await fresh(sceneB);const z=zip([{name:scene.pngPath,bytes:pngHeader()},{name:sceneB.pngPath,bytes:pngHeader(640,288)}]);await imageFor(sceneB,{name:'synthetic-scenes.zip',size:z.byteLength,arrayBuffer:async()=>z});assert.match(els.status.textContent,/SYN_B verificada/);const provenance=JSON.parse(els.provenance.textContent);assert.equal(provenance.source.zipEntry,sceneB.pngPath);assert.equal(provenance.source.containerType,'zip');const duplicate=zip([{name:sceneB.pngPath,bytes:pngHeader(640,288)},{name:sceneB.pngPath,bytes:pngHeader(640,288)}]);await imageFor(sceneB,{name:'synthetic-scenes.zip',size:duplicate.byteLength,arrayBuffer:async()=>duplicate});assert.match(els.status.textContent,/duplicada/);assert.equal(els.export.disabled,true);
 });
+
+test('diagnostic observes touch rejection and commit without changing review semantics',async()=>{
+ els['diagnostic-output']=new Element();
+ await fresh();await buttons[0].fire('click');
+ await reviewer('');await els.canvas.fire('pointerdown',{pointerId:91,clientX:50,clientY:30});
+ let d=JSON.parse(els['diagnostic-output'].textContent);assert.equal(d.state.reviewerInternal,'');assert.equal(d.recent.at(-1).reason,'reviewer_missing');assert.equal(els.count.textContent,0);
+ const committedBefore=d.counts['draw-committed']||0;await reviewer('TEST');await draw(50,30,100,70,92);
+ d=JSON.parse(els['diagnostic-output'].textContent);assert.equal(d.state.regions,1);assert.equal(d.counts['draw-committed'],committedBefore+1);
+ await els.canvas.fire('lostpointercapture');d=JSON.parse(els['diagnostic-output'].textContent);assert.equal(d.counts.lostpointercapture,1);assert.equal(els.count.textContent,1);
+ await els.canvas.fire('pointerdown',{pointerId:93,clientX:50,clientY:30});await els.canvas.fire('pointercancel',{pointerId:93});d=JSON.parse(els['diagnostic-output'].textContent);assert.ok(d.recent.some(e=>e.reason==='pointercancel'));assert.equal(els.count.textContent,1);
+ els.coverage.value='partial';await els.coverage.fire('change');els.ack.checked=true;await els.ack.fire('change');els['review-start'].onclick();els['review-keep'].onclick();const data=await exported();assert.equal(data.schema,'astra-vision-review/0.3');assert.equal(data.reviewer,'TEST');assert.ok(!('diagnostic' in data));assert.equal(data.boxes.length,1);
+});
