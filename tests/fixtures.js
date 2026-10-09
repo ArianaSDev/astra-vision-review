@@ -1,0 +1,12 @@
+import {createHash} from 'node:crypto';
+export function pngHeader(w=1280,h=576){const a=Buffer.alloc(33);a.set([137,80,78,71,13,10,26,10]);a.writeUInt32BE(13,8);a.write('IHDR',12);a.writeUInt32BE(w,16);a.writeUInt32BE(h,20);return a;}
+export const bytes=pngHeader();
+export const scene={id:'SYN_A',pngPath:'frames/synthetic-a.png',width:1280,height:576,pngBytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),frameIndex:30,timestampSeconds:1,timestamp:'00:00:01.000',timingAuthority:'Synthetic fixture declaration; not verified video timing.',limitations:['Synthetic PNG header for unit/event tests; not gameplay or a complete decoded PNG.']};
+export const sceneB={...scene,id:'SYN_B',pngPath:'frames/synthetic-b.png',width:640,height:288,pngBytes:33,sha256:createHash('sha256').update(pngHeader(640,288)).digest('hex'),frameIndex:60,timestampSeconds:2,timestamp:'00:00:02.000'};
+export const manifest={schema:'astra-vision-review-manifest/0.1',scenes:[scene,sceneB]};
+export const manifestSource={filename:'synthetic-manifest.json',bytes:1,sha256:'b'.repeat(64)};
+export const syntheticSource={sceneId:scene.id,width:scene.width,height:scene.height,pngBytes:scene.pngBytes,sha256:scene.sha256,filename:'synthetic-a.png',containerType:'png',zipEntry:null,provenance:'Synthetic local test'};
+
+import {deflateRawSync} from 'node:zlib';
+import {crc32} from '../docs/core.js';
+export function zip(entries){const chunks=[],central=[];let offset=0;for(const {name,bytes,method=0} of entries){const n=Buffer.from(name),data=method===8?deflateRawSync(bytes):bytes,h=Buffer.alloc(30);h.writeUInt32LE(0x04034b50);h.writeUInt16LE(20,4);h.writeUInt16LE(method,8);h.writeUInt32LE(crc32(bytes),14);h.writeUInt32LE(data.length,18);h.writeUInt32LE(bytes.length,22);h.writeUInt16LE(n.length,26);chunks.push(h,n,data);const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50);c.writeUInt16LE(20,4);c.writeUInt16LE(20,6);c.writeUInt16LE(method,10);c.writeUInt32LE(crc32(bytes),16);c.writeUInt32LE(data.length,20);c.writeUInt32LE(bytes.length,24);c.writeUInt16LE(n.length,28);c.writeUInt32LE(offset,42);central.push(c,n);offset+=h.length+n.length+data.length;}const directory=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(entries.length,8);end.writeUInt16LE(entries.length,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);return new Uint8Array(Buffer.concat([...chunks,directory,end])).buffer;}
