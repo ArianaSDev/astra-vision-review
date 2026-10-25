@@ -8,7 +8,7 @@ Antes da certificação real, a OWNER precisa aprovar a extensão e sua publica�
 
 1. Mantenha no aparelho o catálogo neutro privado e os ZIPs/PNGs originais autorizados. Não coloque esses arquivos no GitHub.
 2. Abra o endereço HTTPS aprovado da ferramenta no Chrome Android. `file://` não é o fluxo suportado para módulos, SHA-256 ou persistência. No desenvolvimento, localhost é permitido.
-3. Escolha **HUD · certificação humana OWNER**. Importe o catálogo privado de identidades. Não selecione arquivos de OCR, previsões ou respostas anteriores.
+3. Escolha **HUD · certificação humana OWNER**. Importe o catálogo privado de identidades. O seletor do catálogo permite todos os tipos de arquivo para não ocultar JSONs que o provedor Android identifica com outro MIME. Selecione o catálogo JSON sem renomeá-lo; conteúdo, estrutura e identidades continuam sendo validados antes de iniciar. Não selecione arquivos de OCR, previsões ou respostas anteriores.
 4. Informe o aparelho e as condições da avaliação. Use **Iniciar primeira passagem local**. A revisão não exige afirmar cegamento ou independência inexistentes.
 5. Selecione os ZIPs originais autorizados, inclusive o maior que 111 MB, ou selecione os PNGs locais. O seletor aceita múltiplos arquivos. Não selecione simultaneamente uma cópia PNG e um ZIP com a mesma entrada, pois isso torna a origem ambígua.
 
