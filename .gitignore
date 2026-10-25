@@ -4,3 +4,7 @@
 *.pth
 review-*.json
 node_modules/
+hud-catalog*.json
+*PRIVAD*.json
+playwright-report/
+test-results/

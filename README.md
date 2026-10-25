@@ -1,8 +1,8 @@
 # ASTRA Vision Review
 
-Interface independente para primeira revisão cega de C05. Processamento exclusivamente no navegador, sem telemetria, serviços de upload, CDN, detector ou armazenamento de respostas. Este repositório contém somente código e testes sintéticos; não contém imagens ou dados do projeto Astra.
+Ferramenta independente de revisão humana: caixas de C05 e certificação HUD da OWNER. Processamento exclusivamente no navegador, sem telemetria, serviços de upload, CDN ou detector. O modo HUD salva metadados e leituras no IndexedDB local; o modo C05 mantém seu comportamento anterior. Este repositório contém somente código e testes sintéticos; não contém imagens ou dados do projeto Astra.
 
-## Uso no celular
+## Uso no celular — caixas C05
 
 1. Abra o site HTTPS e selecione R1, R2, R3 ou TEST.
 2. Em **Abrir PNG ou ZIP local**, use o seletor de arquivos do aparelho para selecionar `C05_frame_23835.png` ou `Kagura_Cenas_Candidatas.zip`. A imagem deve ter exatamente 1280 × 576. O PNG é decodificado localmente e seu SHA-256 é calculado sobre os bytes originais.
@@ -19,7 +19,7 @@ JSON `astra-vision-review/0.2`: cena, revisor, SHA-256, bytes do PNG, resoluçã
 
 Toda exportação é `provisional_unvalidated`, `canonicalGroundTruth:false`. Não é GT locked nem referência definitiva para métricas. Revisão humana independente é necessária. O índice de frame e timestamp de C05 são metadados da cena fornecidos, não verificação independente do vídeo. Um PNG com nome correto e resolução correta ainda requer confirmação humana de seu conteúdo.
 
-## ZIP e limites
+## ZIP e limites — caixas C05
 
 Somente a entrada com basename exato `C05_frame_23835.png` é utilizada; nenhuma proposta ou manifesto é importado. Duplicatas são rejeitadas. Suporte a ZIP STORED e DEFLATE com `DecompressionStream('deflate-raw')`; navegadores sem essa API recebem orientação para abrir o PNG extraído no próprio aparelho. ZIP64, multipartes e criptografados não são suportados. Limite de entrada 100 MB e PNG 20 MB; CRC-32 da entrada ZIP é verificado. Nenhuma recodificação é feita.
 
@@ -50,3 +50,26 @@ A imagem original é apenas desenhada no canvas: recorte contextual e cena intei
 ### Entrega isolada
 
 Branch `feat/pre-export-neutral-box-review`, baseada em `99c447b74d4564245b188c490439dd3fec751928`. Não atualizar main nem GitHub Pages enquanto R1 estiver revisando. O merge e a publicação da v0.2 exigem autorização posterior.
+
+
+## Extensão HUD v0.3 — candidata, aguardando aprovação
+
+O seletor **Fluxo de revisão** alterna entre caixas C05 v0.2 e HUD. O formato de caixas, conferência individual, IGNORE, desfazer, zoom e exportação v0.2 permanecem preservados. HUD utiliza o esquema próprio `astra-vision-review/hud-1`, na mesma aplicação; não altera contratos, código ou GT da Astra.
+
+Consulte [HUD_REVIEW.md](HUD_REVIEW.md) para o contrato do catálogo neutro, privacidade, estados, selagem, persistência e uso manual no Android. O catálogo dos 50 casos é privado, distribuído separadamente. O repositório contém somente código e dados sintéticos de testes.
+
+O modo HUD valida 50 identidades únicas por captureId e SHA-256, com 40 gameplay, dez controles e dez grupos de sessão (quatro gameplay e um controle por grupo). A seleção humana é externa e já autorizada; a ferramenta não escolhe novos casos nem infere a identidade pela ordem de um ZIP. Cada PNG deve coincidir com o hash do catálogo e medir 813 × 366. O zoom só modifica a exibição.
+
+Os ZIPs HUD são acessados por `Blob.slice()`: cauda, diretório central limitado e apenas a entrada selecionada. Limite de arquivo 512 MiB, diretório 8 MiB/10.000 entradas e PNG 20 MiB. ZIP64, multipartes e criptografia não são suportados. DEFLATE depende de `DecompressionStream('deflate-raw')`; se indisponível, a OWNER pode extrair manualmente os PNGs no aparelho. Não há extração automática em disco nem leitura integral do ZIP para a memória.
+
+### Verificação da extensão
+
+`npm test`: testes Node sintéticos de contratos, ZIP e regressão de caixas. `npm ci` instala somente a dependência de desenvolvimento Playwright; não há dependências de runtime no site. Para o ensaio de navegador: `npx playwright install chromium --only-shell`, depois `npm run test:browser`. Um navegador já disponível pode ser indicado por `BROWSER_EXECUTABLE=/caminho/do/navegador`.
+
+O ensaio usa servidor localhost, imagens geradas por canvas e um ZIP sintético esparso maior que 111 MB. Verifica os 50 registros, retomada após recarregar, preservação da primeira leitura, rejeição de duplicata e falha de gravação, hash divergente, ausência de tráfego HTTP externo e retorno ao fluxo C05. Não utiliza capturas privadas, referências ou resultados OCR.
+
+A execução em Chromium headless com viewport móvel não comprova operação física no POCO X7 Pro. A própria OWNER realizará qualquer validação no aparelho, somente após aprovação da entrega. Nenhuma certificação real foi iniciada por Work.
+
+### Entrega isolada HUD
+
+Branch `feat/hud-human-certification`, a partir de `61e292e69c871440a6beff68e62c93fa03897af2`. A main e o site publicado não devem ser atualizados automaticamente. A presente extensão depende da aprovação da OWNER para merge, publicação e início da certificação real.
