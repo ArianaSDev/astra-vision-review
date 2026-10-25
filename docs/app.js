@@ -1,4 +1,5 @@
 import {SCENE,clamp,point,rectangle,validBox,pngDimensions,extractC05,exportReview,regionSignature,invalidateRegion,conferRegion,regionConferred,conferenceSummary,restoreRegions,contextWindow} from './core.js';
+import {fitImage,zoomImage} from './viewport.js';
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
 let image=null,source=null,boxes=[],selected=null,reviewer='',mode='visible_body',transform={x:0,y:0,scale:1},fitScale=1,history=[],gesture=null,pointers=new Map(),serial=0,busy=false,reviewingId=null;
 const message=text=>$('status').textContent=text;
@@ -43,7 +44,7 @@ function confirmDisplayed(decision){
   conferRegion(b,decision,reviewer);const next=boxes.find(candidate=>!regionConferred(candidate,reviewer));if(next)reviewingId=next.id;update();
   message(next?'Decisão registrada. Examine a próxima região.':'Conferência individual concluída. O resultado continua provisório.');
 }
-function fit(){if(!image)return;fitScale=Math.min(canvas.clientWidth/SCENE.width,canvas.clientHeight/SCENE.height);transform={scale:fitScale,x:(canvas.clientWidth-SCENE.width*fitScale)/2,y:(canvas.clientHeight-SCENE.height*fitScale)/2};render();}
+function fit(){if(!image)return;transform=fitImage(SCENE.width,SCENE.height,canvas.clientWidth,canvas.clientHeight);fitScale=transform.scale;render();}
 function render(){
   const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,3);if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!image)return;
   ctx.save();ctx.translate(transform.x,transform.y);ctx.scale(transform.scale,transform.scale);ctx.drawImage(image,0,0,1280,576);
@@ -55,7 +56,7 @@ function corners(b){return [{x:b.x,y:b.y},{x:b.x+b.width,y:b.y},{x:b.x+b.width,y
 function local(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
 function midpoint(a,b){return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
 function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
-function zoom(factor,anchor={x:canvas.clientWidth/2,y:canvas.clientHeight/2}){if(!image)return;const s=clamp(transform.scale*factor,fitScale,fitScale*12),k=s/transform.scale;transform={scale:s,x:anchor.x-(anchor.x-transform.x)*k,y:anchor.y-(anchor.y-transform.y)*k};render();}
+function zoom(factor,anchor={x:canvas.clientWidth/2,y:canvas.clientHeight/2}){if(!image)return;transform=zoomImage(transform,factor,anchor,fitScale);render();}
 canvas.addEventListener('pointerdown',e=>{
   if(!image||!reviewer||busy){message(!reviewer?'Selecione um revisor antes de anotar.':'Abra a imagem antes de anotar.');return;}e.preventDefault();$('export').disabled=true;canvas.setPointerCapture(e.pointerId);const p=local(e);pointers.set(e.pointerId,p);
   if(pointers.size===2){if(gesture?.before)boxes=JSON.parse(gesture.before);const [a,b]=[...pointers.values()],m=midpoint(a,b);gesture={type:'pinch',distance:Math.max(1,distance(a,b)),start:m,transform:{...transform}};update();return;}

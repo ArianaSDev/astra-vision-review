@@ -1,0 +1,1 @@
+export function syntheticCatalog(){return {schema:'astra-hud-catalog/1',datasetId:'SYNTHETIC-NOT-ASTRA',cases:Array.from({length:50},(_,i)=>({captureId:`SYN-${i}`,sessionId:`SYN-SESSION-${Math.floor(i/5)}`,filename:`synthetic-${i}.png`,sha256:i.toString(16).padStart(64,'0'),kind:i%5===0?'control':'gameplay'}))};}
